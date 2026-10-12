@@ -1,20 +1,51 @@
 import math
+import os
 
 import altair as alt
 import pandas as pd
+import requests
 import streamlit as st
 
-from src.config import (
-    APP_DEFAULTS,
-    DEFAULT_CODES,
-    FEATURE_ORDER,
-    GRADE_CODES,
-    HOME_CODES,
-    INTENT_CODES,
-    MODEL_METRICS,
-    SAMPLE_PROFILES,
-)
-from src.pipeline import load_artifacts, score_applicant
+API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+
+HOME_CODES = ["RENT", "OWN", "MORTGAGE", "OTHER"]
+INTENT_CODES = ["DEBTCONSOLIDATION", "EDUCATION", "HOMEIMPROVEMENT", "MEDICAL", "PERSONAL", "VENTURE"]
+GRADE_CODES = ["A", "B", "C", "D", "E", "F", "G"]
+DEFAULT_CODES = ["N", "Y"]
+
+APP_DEFAULTS = {
+    "lang": "en",
+    "in_income": 50000,
+    "in_amnt": 5000,
+    "in_age": 25,
+    "in_rate": 11.5,
+    "in_emp": 3.0,
+    "in_hist": 4,
+    "in_home": "RENT",
+    "in_intent": "MEDICAL",
+    "in_grade": "A",
+    "in_default": "N",
+    "th_low": 0.35,
+    "th_high": 0.70,
+}
+
+SAMPLE_PROFILES = {
+    "Low risk": {
+        "in_income": 92000, "in_amnt": 3000, "in_age": 36, "in_rate": 7.4,
+        "in_emp": 9.0, "in_hist": 12, "in_home": "MORTGAGE", "in_intent": "EDUCATION",
+        "in_grade": "A", "in_default": "N",
+    },
+    "Borderline": {
+        "in_income": 45000, "in_amnt": 6000, "in_age": 26, "in_rate": 12.0,
+        "in_emp": 3.0, "in_hist": 3, "in_home": "RENT", "in_intent": "MEDICAL",
+        "in_grade": "D", "in_default": "N",
+    },
+    "High risk": {
+        "in_income": 18000, "in_amnt": 19000, "in_age": 23, "in_rate": 18.5,
+        "in_emp": 0.5, "in_hist": 1, "in_home": "RENT", "in_intent": "VENTURE",
+        "in_grade": "E", "in_default": "Y",
+    },
+}
 
 DISPLAY_NAMES = {
     "en": {
@@ -98,6 +129,10 @@ TEXTS = {
         "id": "Model juara LightGBM produksi berhasil dimuat",
     },
     "load_error": {"en": "Failed to load model artifacts: {error}", "id": "Gagal memuat artefak model: {error}"},
+    "api_error": {
+        "en": "Failed to reach the scoring API at {url}: {error}",
+        "id": "Gagal menghubungi API penilaian di {url}: {error}",
+    },
 
     "language": {"en": "Language", "id": "Bahasa"},
     "section_profiles": {"en": "Sample Profiles", "id": "Contoh Profil"},
@@ -305,9 +340,17 @@ def label_for(mapping, code):
     return mapping[code][current_lang()]
 
 
-@st.cache_resource(show_spinner=False)
-def get_artifacts():
-    return load_artifacts()
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_model_info():
+    response = requests.get(f"{API_URL}/model/info", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+def request_prediction(payload):
+    response = requests.post(f"{API_URL}/predict", json=payload, timeout=10)
+    response.raise_for_status()
+    return response.json()
 
 
 def _gauge_point(cx, cy, r, theta_deg):
@@ -372,12 +415,12 @@ def render_gauge(probability, low, high, stroke_color):
     """
 
 
-def render_contributions(model, contributions, top_n=8):
+def render_contributions(contributions, top_n=8):
     names = DISPLAY_NAMES[current_lang()]
     frame = pd.DataFrame(
         {
-            "Feature": [names.get(n, n) for n in FEATURE_ORDER],
-            "Impact": contributions,
+            "Feature": [names.get(item["feature"], item["feature"]) for item in contributions],
+            "Impact": [item["value"] for item in contributions],
         }
     )
     frame["Magnitude"] = frame["Impact"].abs()
@@ -431,7 +474,8 @@ def render_decision(probability, decision, ratio, low, high):
     )
 
 
-def render_sidebar():
+def render_sidebar(info):
+    metrics = info["metrics"]
     with st.sidebar:
         st.radio("Language / Bahasa", ["en", "id"], format_func=lambda c: LANG_LABELS[c],
                  horizontal=True, key="lang")
@@ -448,11 +492,11 @@ def render_sidebar():
         st.markdown(f'<div class="section-title" style="margin-top:1.2rem"><span class="bar"></span>{t("section_champion")}</div>', unsafe_allow_html=True)
         st.caption(t("champion_caption"))
         m1, m2 = st.columns(2)
-        m1.metric("ROC-AUC", MODEL_METRICS["roc_auc"])
-        m2.metric(t("precision"), MODEL_METRICS["precision"])
+        m1.metric("ROC-AUC", metrics["roc_auc"])
+        m2.metric(t("precision"), metrics["precision"])
         m3, m4 = st.columns(2)
-        m3.metric(t("recall"), MODEL_METRICS["recall"])
-        m4.metric(t("accuracy"), MODEL_METRICS["accuracy"])
+        m3.metric(t("recall"), metrics["recall"])
+        m4.metric(t("accuracy"), metrics["accuracy"])
         st.caption(t("champion_note"))
 
 
@@ -468,8 +512,6 @@ def main():
     for key, value in APP_DEFAULTS.items():
         st.session_state.setdefault(key, value)
 
-    render_sidebar()
-
     st.markdown(
         f"""
         <div class="topbar">
@@ -482,10 +524,12 @@ def main():
     )
 
     try:
-        model, scaler = get_artifacts()
+        info = fetch_model_info()
     except Exception as error:
-        st.error(t("load_error", error=error))
+        st.error(t("api_error", url=API_URL, error=error))
         st.stop()
+
+    render_sidebar(info)
 
     low, high = st.session_state["th_low"], st.session_state["th_high"]
     if low >= high:
@@ -534,27 +578,31 @@ def main():
         st.info(t("info_prompt"))
         st.stop()
 
-    result = score_applicant(
-        model,
-        scaler,
-        age=st.session_state["in_age"],
-        income=income,
-        emp=st.session_state["in_emp"],
-        amnt=amount,
-        rate=st.session_state["in_rate"],
-        hist=st.session_state["in_hist"],
-        home=st.session_state["in_home"],
-        intent=st.session_state["in_intent"],
-        grade=st.session_state["in_grade"],
-        default=st.session_state["in_default"],
-        low=low,
-        high=high,
-    )
+    payload = {
+        "person_age": int(st.session_state["in_age"]),
+        "person_income": income,
+        "person_emp_length": float(st.session_state["in_emp"]),
+        "loan_amnt": amount,
+        "loan_int_rate": float(st.session_state["in_rate"]),
+        "cb_person_cred_hist_length": int(st.session_state["in_hist"]),
+        "person_home_ownership": st.session_state["in_home"],
+        "loan_intent": st.session_state["in_intent"],
+        "loan_grade": st.session_state["in_grade"],
+        "cb_person_default_on_file": st.session_state["in_default"],
+        "threshold_low": low,
+        "threshold_high": high,
+    }
+
+    try:
+        result = request_prediction(payload)
+    except Exception as error:
+        st.error(t("api_error", url=API_URL, error=error))
+        st.stop()
 
     probability = result["probability"]
     contributions = result["contributions"]
     decision = result["decision"]
-    ratio = result["ratio"]
+    ratio = result["loan_percent_income"]
 
     stroke_color = {"approve": "#15803d", "review": "#b45309", "reject": "#b91c1c"}[decision]
 
@@ -572,7 +620,7 @@ def main():
     cards = [
         (t("card_exposure"), f"{ratio * 100:.2f}%", t("card_exposure_sub")),
         (t("card_segment"), "LightGBM", t("card_segment_sub")),
-        (t("card_vector"), str(len(FEATURE_ORDER)), t("card_vector_sub")),
+        (t("card_vector"), str(info["feature_count"]), t("card_vector_sub")),
         (t("card_scaling"), "StandardScaler", t("card_scaling_sub")),
     ]
     for column, (key, value, sub) in zip((c1, c2, c3, c4), cards):
@@ -583,7 +631,7 @@ def main():
         )
 
     with st.expander(t("expander_why"), expanded=True):
-        render_contributions(model, contributions)
+        render_contributions(contributions)
 
     with st.expander(t("expander_how")):
         st.markdown(t("how_body"))

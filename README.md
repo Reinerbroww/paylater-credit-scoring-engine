@@ -5,7 +5,7 @@ It ingests an applicant's financial profile, engineers and normalizes the vector
 champion LightGBM classifier, and routes the default probability through a three-band
 decision gate — in under three seconds.
 
-**Stack:** Python · LightGBM · scikit-learn · Streamlit · Joblib
+**Stack:** Python · FastAPI · LightGBM · scikit-learn · Streamlit · Joblib
 
 ---
 
@@ -32,27 +32,39 @@ weighted baseline and protects revenue while containing credit exposure.
 
 ## 2. System Data Flow
 
-The application layer is decoupled from the model core so the engine stays deterministic and
-reusable (UI, API, or batch scoring):
+The system is split into a thin **Streamlit frontend** and a **FastAPI backend** that owns the
+model, so the scoring engine stays deterministic and reusable (web UI, service, or batch):
 
 ```text
-[ Streamlit UI Input Form ]
+[ Streamlit Frontend  (app.py) ]                            web UI
+            |  HTTP/JSON  ·  POST /predict
+            v
+[ FastAPI Backend     (api/main.py) ]                       service layer
             |
             v
-[ Feature Engineering  (ratio calc + one-hot encoding) ]   src/preprocess.py
+[ Feature Engineering (ratio calc + one-hot encoding) ]     src/preprocess.py
             |
             v
-[ Data Normalization   (fitted StandardScaler binary)  ]   src/preprocess.py
+[ Data Normalization  (fitted StandardScaler) ]             src/preprocess.py
             |
             v
-[ Champion Inference   (LightGBM leaf-wise classifier) ]   src/pipeline.py
+[ Champion Inference  (LightGBM leaf-wise classifier) ]     src/pipeline.py
             |
             v
-[ Decision Routing Gate (threshold matrix alert output)]   src/pipeline.py
+[ Decision Routing Gate (approve / review / reject) ]       src/pipeline.py
 ```
 
-A single call to `score_applicant(...)` performs the entire chain and returns the probability,
-per-feature contributions, decision band, and computed paycheck exposure.
+The frontend carries **no model code** — it posts an applicant payload to `POST /predict` and
+renders the returned probability, per-feature contributions, decision band, and paycheck
+exposure. The backend wraps `src/pipeline.py::score_applicant`.
+
+**API surface**
+
+| Method | Path | Purpose |
+|:--|:--|:--|
+| `GET` | `/` · `/health` | Liveness + loaded model name |
+| `GET` | `/model/info` | Feature schema, metrics, thresholds, hyperparameters |
+| `POST` | `/predict` | Score an applicant → probability, decision, contributions |
 
 ---
 
@@ -121,8 +133,13 @@ per-feature contribution breakdown for explainability.
 ## Project Structure
 
 ```text
-├── app.py                 # Streamlit UI (presentation only)
-├── src/
+├── app.py                 # Streamlit frontend (presentation only, calls the API)
+├── api/                   # FastAPI backend
+│   ├── __init__.py
+│   ├── main.py            # routes: /health, /model/info, /predict
+│   ├── schemas.py         # Pydantic request/response contracts
+│   └── service.py         # loads artifacts, wraps the scoring pipeline
+├── src/                   # ML core (framework-agnostic)
 │   ├── __init__.py        # public API surface
 │   ├── config.py          # paths, feature schema, thresholds, hyperparams
 │   ├── preprocess.py      # feature engineering + scaling
@@ -144,18 +161,31 @@ per-feature contribution breakdown for explainability.
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Launch the dashboard
+# 2. Start the FastAPI backend
+uvicorn api.main:app --reload --port 8000
+
+# 3. Start the Streamlit frontend (in a second terminal)
 streamlit run app.py
 ```
 
-The dashboard loads the champion model, accepts an applicant profile, and returns a decision
-with a risk gauge, paycheck-exposure metrics, and an explainability chart. The UI supports
-**English / Bahasa Indonesia**.
+The backend exposes interactive docs at `http://localhost:8000/docs`. The frontend reads the
+API base URL from the `API_URL` environment variable (default `http://localhost:8000`):
+
+```powershell
+$env:API_URL = "http://localhost:8000"; streamlit run app.py
+```
+
+The dashboard accepts an applicant profile and returns a decision with a risk gauge,
+paycheck-exposure metrics, and an explainability chart. The UI supports **English / Bahasa
+Indonesia**.
 
 ---
 
 ## Notes
 
-- The entire decision path is reproducible from `src/pipeline.py::score_applicant`.
+- The entire decision path is reproducible from `src/pipeline.py::score_applicant`, which the API
+  exposes without modification.
+- The frontend is stateless with respect to the model: stop the API and the UI reports a
+  connection error instead of scoring.
 - This is a decision-support prototype: outputs are model estimates and do not constitute a
   final credit decision.

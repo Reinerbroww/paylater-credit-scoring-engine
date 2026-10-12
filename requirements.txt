@@ -1,4 +1,13 @@
+# Backend API
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.1
+
+# Frontend
 streamlit==1.65.0
+requests==2.34.2
+
+# ML core
 lightgbm==4.7.0
 scikit-learn==1.9.1
 pandas==3.0.6
