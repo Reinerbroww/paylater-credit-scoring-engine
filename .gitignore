@@ -1,0 +1,53 @@
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Streamlit secrets (never commit credentials)
+.streamlit/secrets.toml
+
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Model & data artifacts are committed on purpose (required at runtime/deploy).
+# Uncomment the lines below only if you host them externally.
+# model/*.pkl
+# dataset/*.csv
