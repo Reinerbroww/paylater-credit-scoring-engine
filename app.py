@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+API_URL = os.getenv("API_URL", "https://paylater-credit-scoring-engine.onrender.com").rstrip("/")
 
 HOME_CODES = ["RENT", "OWN", "MORTGAGE", "OTHER"]
 INTENT_CODES = ["DEBTCONSOLIDATION", "EDUCATION", "HOMEIMPROVEMENT", "MEDICAL", "PERSONAL", "VENTURE"]
@@ -133,6 +133,11 @@ TEXTS = {
         "en": "Failed to reach the scoring API at {url}: {error}",
         "id": "Gagal menghubungi API penilaian di {url}: {error}",
     },
+    "connecting": {
+        "en": "Connecting to the scoring service...",
+        "id": "Menghubungkan ke layanan penilaian...",
+    },
+    "scoring": {"en": "Scoring applicant...", "id": "Menilai pelamar..."},
 
     "language": {"en": "Language", "id": "Bahasa"},
     "section_profiles": {"en": "Sample Profiles", "id": "Contoh Profil"},
@@ -342,13 +347,13 @@ def label_for(mapping, code):
 
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_model_info():
-    response = requests.get(f"{API_URL}/model/info", timeout=10)
+    response = requests.get(f"{API_URL}/model/info", timeout=90)
     response.raise_for_status()
     return response.json()
 
 
 def request_prediction(payload):
-    response = requests.post(f"{API_URL}/predict", json=payload, timeout=10)
+    response = requests.post(f"{API_URL}/predict", json=payload, timeout=90)
     response.raise_for_status()
     return response.json()
 
@@ -524,7 +529,8 @@ def main():
     )
 
     try:
-        info = fetch_model_info()
+        with st.spinner(t("connecting")):
+            info = fetch_model_info()
     except Exception as error:
         st.error(t("api_error", url=API_URL, error=error))
         st.stop()
@@ -594,7 +600,8 @@ def main():
     }
 
     try:
-        result = request_prediction(payload)
+        with st.spinner(t("scoring")):
+            result = request_prediction(payload)
     except Exception as error:
         st.error(t("api_error", url=API_URL, error=error))
         st.stop()

@@ -168,8 +168,15 @@ uvicorn api.main:app --reload --port 8000
 streamlit run app.py
 ```
 
-The backend exposes interactive docs at `http://localhost:8000/docs`. The frontend reads the
-API base URL from the `API_URL` environment variable (default `http://localhost:8000`):
+The backend exposes interactive docs at `/docs` (e.g. `http://localhost:8000/docs` locally).
+The frontend reads the API base URL from the `API_URL` environment variable, defaulting to the
+deployed Render backend:
+
+```text
+https://paylater-credit-scoring-engine.onrender.com   # default
+```
+
+Point it at a local backend instead with:
 
 ```powershell
 $env:API_URL = "http://localhost:8000"; streamlit run app.py
