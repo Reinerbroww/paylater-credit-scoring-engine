@@ -1,5 +1,7 @@
 # Real-Time Dynamic Credit Scoring System for E-Commerce PayLater
 
+> **Live App:** https://paylatercreditscoringengine.streamlit.app/
+
 A production-style, real-time credit decision engine for e-commerce PayLater checkout.
 It ingests an applicant's financial profile, engineers and normalizes the vector, runs a
 champion LightGBM classifier, and routes the default probability through a three-band
